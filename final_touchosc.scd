@@ -6,7 +6,7 @@ The final result would be a 3-system interface, using TouchOSC to toggle and pla
 
 
 (
-
+~NUMBER_OF_KEYS = 44;
 ~root = 60;
 ~intervals = (0..11);
 ~notes = ~root + ~intervals;
@@ -22,6 +22,9 @@ s.waitForBoot({
 		freq = note.midicps * bend.midiratio;
 
 		sig = env * VarSaw.ar(freq, [0,0], width, amp);
+		// sig = sig.wrap(-1,1);
+		// sig = sig.lag(MouseX.kr(4,880,1)/SampleRate.ir);
+
 		sig = RHPF.ar(sig, hpf_c, hrq);
 		sig = RLPF.ar(sig, lpf_c, lrq);
 		sig = sig*env;

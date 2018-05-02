@@ -5,48 +5,80 @@ The final result would be a 3-system interface, using TouchOSC to toggle and pla
 */
 
 
+/* TouchOSC:
+ * Multifader - Pitch bend for each chromatic note
+ * Multifader - ADSR
+ * Rotary - LPF
+ * Rotary - HPF
+
+ */
 (
-~NUMBER_OF_KEYS = 44;
-~root = 60;
-~intervals = (0..11);
+
+MIDIClient.init;
+MIDIIn.connectAll;
+MIDIFunc.trace(true);
+)
+
+
+(
+
+
+~num_keys = 24;// number of keys on the MIDI keyboard
+~root = 48;
+~intervals = (0..~num_keys);
 ~notes = ~root + ~intervals;
-~synths = Array.newClear(12);
+~synths = Array.newClear(~num_keys);
+
 
 s.waitForBoot({
-
+	/* Define our synth */
 	SynthDef.new(\simple, {
-		arg note=60, amp=0.6, gate=0, bend=0, hpf_c=10, lpf_c=10000, hrq=1, lrq=1, width=0.5,
+		arg note=60, amp=0.6, gate=0, phs=0, bend=0,
+		    hpf_c=10, lpf_c=10000, hrq=1, lrq=1, width=0.5,
 		    attackTime=0.8, decayTime=1.0, sustainLevel=0.75, releaseTime=3;
 		var freq, sig, env, filter, pan;
-		env = EnvGen.kr(Env.adsr(attackTime, decayTime, sustainLevel, releaseTime), gate);
-		freq = note.midicps * bend.midiratio;
 
-		sig = env * VarSaw.ar(freq, [0,0], width, amp);
-		// sig = sig.wrap(-1,1);
-		// sig = sig.lag(MouseX.kr(4,880,1)/SampleRate.ir);
+
+		freq = note.midicps * LFNoise1.kr(1!4).bipolar(0).midiratio * bend.midiratio;
+		sig = VarSaw.ar(freq, phs, MouseX.kr(0.01, 0.99), amp) * MouseY.kr(0.5, 0.8, 1);
+		sig = sig.wrap(-1, 1);
+
+		env = EnvGen.kr(Env.adsr(attackTime, decayTime, sustainLevel, releaseTime), gate);
+		sig = env * sig;
 
 		sig = RHPF.ar(sig, hpf_c, hrq);
 		sig = RLPF.ar(sig, lpf_c, lrq);
-		sig = sig*env;
+
+		sig = Splay.ar(sig);
 		Out.ar(0, sig);
 	}).add;
 
 	s.sync;
 
-	// ~s = Synth.new(\simple, [\gate, 1]);
-
-	/* Structure: To pitch bend while a note is being played, a Synth must exist for that note, its gate set to 1 or 0 by keydown
-	 * But in this case, does that mean N synths must exist to represent an N-key keyboard, every 12 synths representing a new octave?
-	 * Could be a way to modularize that in the sense that each octave is just 12 notes up
-	 */
-
-	(0..11).do({
+	/* Instantiate synths */
+	(0..~num_keys-1).do({
 		arg i;
-		~synths[i] = Synth.new(\simple);//, [\note, ~notes[i]]);
+		~synths[i] = Synth.new(\simple, [\note, ~notes[i]]);
+	});
+});
+
+/* MIDI listener */
+MIDIdef.cc(\cc, {
+	arg val, cc, misc1, misc2;
+	var value;
+	[val, cc, misc1, misc2].postln;
+	value = LinLin.kr(val, 0, 127, -2, 2);
+	if (cc == 7, {
+		~synths[0].set(\bend, value);
 	});
 });
 )
+
+
+
+
 ~synths[0].set(\gate, 1);
+~synths[3].set(\gate, 1);
 
 
 sig * MouseY.kr(0.5, 1);

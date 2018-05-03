@@ -29,7 +29,7 @@ MIDIFunc.trace(true);
 ~notes = ~root + ~intervals;
 ~synths = Array.newClear(~num_keys);
 
-
+~bend = 0; ~hpf_c = 10; ~lpf_c = 10000;
 s.waitForBoot({
 	/* Define our synth */
 	SynthDef.new(\simple, {
@@ -62,7 +62,27 @@ s.waitForBoot({
 	});
 });
 
-/* MIDI listener */
+/* OSCdefs listening to TouchOSC inputs */
+OSCdef.new(\master, {
+	arg msg;
+	var amp = msg[1];
+	amp.postln;
+	s.volume_(amp.explin(0.01, 1, -60, 6)); // in dB
+}, '/1/fader1');
+
+OSCdef.new(\xypad, {
+	arg msg;
+	var y = msg[1], x = msg[2];
+
+	y.postln;
+	(0..~num_keys-1).do({
+		arg i;
+		~synths[i].set(\hpf_c, y.linexp(0, 1, 100, 22000));
+	});
+}, '/1/xy1');
+
+
+/* MIDIdefs listening to MIDI keyboard */
 MIDIdef.cc(\cc, {
 	arg val, cc, misc1, misc2;
 	var value;
@@ -72,15 +92,21 @@ MIDIdef.cc(\cc, {
 		~synths[0].set(\bend, value);
 	});
 });
+
+MIDIdef.noteOn(\noteOn, {
+	arg val, num, chan, src;
+	// TODO: turn on corresponding synth .set()
+});
+
+MIDIdef.noteOff(\noteOff, {
+	arg val, num, chan, src;
+	// TODO: turn off corresponding synth with .set()
+});
+
 )
 
 
 
 
 ~synths[0].set(\gate, 1);
-~synths[3].set(\gate, 1);
-
-
-sig * MouseY.kr(0.5, 1);
-sig.fold
-sig.lag(MouseX.kr(4, 441,1)/SampleRate.ir)
+~synths[2].set(\gate, 1);

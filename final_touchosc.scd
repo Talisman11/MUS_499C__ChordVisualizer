@@ -10,21 +10,21 @@ The final result would be a 3-system interface, using TouchOSC to toggle and pla
  * Multifader - ADSR
  * Rotary - LPF
  * Rotary - HPF
-
+ * Fader - Gain
  */
 (
-
 MIDIClient.init;
 MIDIIn.connectAll;
-MIDIFunc.trace(true);
+MIDIFunc.trace(false);
 )
 
 
 (
 
 
-~num_keys = 24;// number of keys on the MIDI keyboard
+~num_keys = 49;// number of keys on the MIDI keyboard
 ~root = 48;
+~lowest_note = 36;
 ~intervals = (0..~num_keys);
 ~notes = ~root + ~intervals;
 ~synths = Array.newClear(~num_keys);
@@ -62,6 +62,17 @@ s.waitForBoot({
 	});
 });
 
+/* Helper function that sets all synths' \key to specified val. */
+~update_synths = {
+	arg key, val;
+
+	(0..~num_keys-1).do({
+		arg i;
+		~synths[i].set(key, val);
+	});
+};
+
+
 /* OSCdefs listening to TouchOSC inputs */
 OSCdef.new(\master, {
 	arg msg;
@@ -70,20 +81,37 @@ OSCdef.new(\master, {
 	s.volume_(amp.explin(0.01, 1, -60, 6)); // in dB
 }, '/1/fader1');
 
-OSCdef.new(\xypad, {
+OSCdef.new(\lpf, {
 	arg msg;
-	var y = msg[1], x = msg[2];
+	var val = msg[1];
 
-	y.postln;
+	~update_synths.value(\lpf_c, val.linexp(0, 1, 100, 2000));
+}, '/1/rotary1');
+
+OSCdef.new(\hpf, {
+	arg msg;
+	var val = msg[1];
+
+	~update_synths.value(\hpf_c, val.linexp(0, 1, 2000, 10000));
+}, '/1/rotary2');
+
+MIDIdef.bend(\bend, {
+	arg val;
+
+	/*while ({note < ~root + ~num_keys}, {
+		~update_synths.value(\bend, val);
+		note = note + 12;
+	});*/
+
 	(0..~num_keys-1).do({
 		arg i;
-		~synths[i].set(\hpf_c, y.linexp(0, 1, 100, 22000));
+
+		~synths[i].set(\bend, val.linlin(0,16383,-1,1));
 	});
-}, '/1/xy1');
 
-
+});
 /* MIDIdefs listening to MIDI keyboard */
-MIDIdef.cc(\cc, {
+/*MIDIdef.cc(\cc, {
 	arg val, cc, misc1, misc2;
 	var value;
 	[val, cc, misc1, misc2].postln;
@@ -91,22 +119,25 @@ MIDIdef.cc(\cc, {
 	if (cc == 7, {
 		~synths[0].set(\bend, value);
 	});
-});
+});*/
+
+
 
 MIDIdef.noteOn(\noteOn, {
 	arg val, num, chan, src;
-	// TODO: turn on corresponding synth .set()
+	[num, val].postln;
+	~synths[num - ~lowest_note].set(\gate, 1);
 });
 
 MIDIdef.noteOff(\noteOff, {
 	arg val, num, chan, src;
-	// TODO: turn off corresponding synth with .set()
+	~synths[num - ~lowest_note].set(\gate, 0);
 });
 
 )
 
 
+~synths.size
 
-
-~synths[0].set(\gate, 1);
+~synths[0].set(\gate, 0);
 ~synths[2].set(\gate, 1);

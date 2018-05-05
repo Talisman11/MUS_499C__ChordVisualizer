@@ -28,6 +28,7 @@ MIDIFunc.trace(false);
 ~notes = ~root + ~intervals;
 ~pitch_bends = Array.newClear(12); // Unnecessary?
 ~synths = Array.newClear(~num_keys);
+~adsr_keys = [\attackTime, \decayTime, \sustainLevel, \releaseTime];
 
 /* Initial values for TouchOSC knobs/faders */
 ~bend = 0; ~hpf_c = 10; ~lpf_c = 10000;
@@ -42,7 +43,8 @@ MIDIFunc.trace(false);
 	});
 };
 
-~init_multifader = {
+// TODO: Might need to move these init functions to somewhere in the code after the ~synths have been created
+~init_mf_bend = {
 	arg cell=1;
 
 	OSCdef.new(
@@ -55,8 +57,23 @@ MIDIFunc.trace(false);
 				arg i;
 				~synths[i].set(\bend, msg[1]);
 			});
-		}, '/1/multifader/' ++ cell
+		}, '/1/multifader1/' ++ cell
 	);
+};
+
+/* Init ADSR function for all synths based on the input band (from TouchOSC) and its respective key */
+~init_mf_adsr = {
+	arg band=1, key=nil;
+
+	OSCdef.new(
+		\mf ++ band, {
+			arg msg;
+
+			(0..~num_keys-1).do({
+				arg i;
+				~synths[i].set(key, msg[1]);
+			});
+		}, '/1/multifader2/' ++ band);
 };
 
 /* Fire up the server */
@@ -100,7 +117,12 @@ s.waitForBoot({
 	(0..11).do({
 		arg i;
 
-		~init_multifader.value(i);
+		~init_mf_bend.value(i);
+	});
+
+	(0..3).do({
+		arg i;
+		~init_mf_adsr.value(i, ~adsr_keys[i]);
 	});
 });
 

@@ -20,16 +20,31 @@ MIDIFunc.trace(false);
 
 
 (
-
-
-~num_keys = 49;// number of keys on the MIDI keyboard
-~root = 48;
-~lowest_note = 36;
+~num_keys = 49; // number of keys on the MIDI keyboard
+~root = 48; // Transpose up or down by octaves. ~root=60 would be C5 (standard), but 48 for C4 is one octave lower
+~lowest_note = 36; // Lowest src channel of MIDI notes
 ~intervals = (0..~num_keys);
 ~notes = ~root + ~intervals;
+~pitch_bends = Array.newClear(12);
 ~synths = Array.newClear(~num_keys);
 
 ~bend = 0; ~hpf_c = 10; ~lpf_c = 10000;
+
+
+~init_multifader = {
+	arg cell=1;
+
+	OSCdef.new(
+		\mf ++ cell, {
+			arg msg;
+			// Todo: should set the array values, but these are NOT the synths...
+			~pitch_bends[cell-1].set(\bend, msg[1]); // always update the actual pitch bend value
+		}, '/1/multifader/' ++ cell
+	);
+
+
+};
+
 s.waitForBoot({
 	/* Define our synth */
 	SynthDef.new(\simple, {
@@ -60,6 +75,8 @@ s.waitForBoot({
 		arg i;
 		~synths[i] = Synth.new(\simple, [\note, ~notes[i]]);
 	});
+
+	~init_multifader.value
 });
 
 /* Helper function that sets all synths' \key to specified val. */
@@ -71,6 +88,7 @@ s.waitForBoot({
 		~synths[i].set(key, val);
 	});
 };
+
 
 
 /* OSCdefs listening to TouchOSC inputs */
@@ -95,21 +113,18 @@ OSCdef.new(\hpf, {
 	~update_synths.value(\hpf_c, val.linexp(0, 1, 2000, 10000));
 }, '/1/rotary2');
 
-MIDIdef.bend(\bend, {
-	arg val;
 
-	/*while ({note < ~root + ~num_keys}, {
-		~update_synths.value(\bend, val);
-		note = note + 12;
-	});*/
+
+/*MIDIdef.bend(\bend, {
+	arg val;
 
 	(0..~num_keys-1).do({
 		arg i;
 
 		~synths[i].set(\bend, val.linlin(0,16383,-1,1));
 	});
+});*/
 
-});
 /* MIDIdefs listening to MIDI keyboard */
 /*MIDIdef.cc(\cc, {
 	arg val, cc, misc1, misc2;
@@ -136,8 +151,4 @@ MIDIdef.noteOff(\noteOff, {
 
 )
 
-
-~synths.size
-
-~synths[0].set(\gate, 0);
-~synths[2].set(\gate, 1);
+(2, 14..38)

@@ -18,9 +18,10 @@ MIDIIn.connectAll;
 MIDIFunc.trace(false);
 )
 
-
+~touchOSC.disconnect
 (
 /* Global configuration variables */
+~touchOSC = NetAddr.new("192.168.0.121", 9000);
 ~num_keys = 49;                   // number of keys on the MIDI keyboard
 ~root = 48;                       // Transpose up or down by octaves. ~root=60 would be C5 (standard), but 48 for C4 is one octave lower
 ~lowest_note = 36;                // Lowest src channel of MIDI notes
@@ -28,7 +29,8 @@ MIDIFunc.trace(false);
 ~notes = ~root + ~intervals;
 ~pitch_bends = Array.newClear(12); // Unnecessary?
 ~synths = Array.newClear(~num_keys);
-~adsr_keys = [\attackTime, \decayTime, \sustainLevel, \releaseTime];
+~adsr_keys = ["attackTime", "decayTime", "sustainLevel", "releaseTime"];
+
 
 /* Initial values for TouchOSC knobs/faders */
 ~bend = 0; ~hpf_c = 10; ~lpf_c = 10000;
@@ -50,7 +52,6 @@ MIDIFunc.trace(false);
 	OSCdef.new(
 		\mf ++ cell, {
 			arg msg;
-			// ~pitch_bends[cell-1] = msg[1];
 
 			// Update bend value for all octaves of the corresponding cell
 			(cell-1, cell-1+12..~num_keys-1).do({
@@ -65,15 +66,26 @@ MIDIFunc.trace(false);
 ~init_mf_adsr = {
 	arg band=1, key=nil;
 
-	OSCdef.new(
-		\mf ++ band, {
-			arg msg;
+	OSCdef.new(\mf ++ band, {
+		arg msg;
+		var val = msg[1];
 
-			(0..~num_keys-1).do({
-				arg i;
-				~synths[i].set(key, msg[1]);
-			});
-		}, '/1/multifader2/' ++ band);
+		if (key == "attackTime", {
+			~update_synths.value(\attackTime, val.linexp(0, 1, 0.25, 1.5));
+		});
+
+		if (key == "decayTime", {
+			~update_synths.value(\decayTime, val.linexp(0, 1, 0.75, 2));
+		});
+
+		if (key == "sustainLevel", {
+			~update_synths.value(\sustainLevel, val.linexp(0, 1, 0.25, 1));
+		});
+
+		if (key == "releaseTime", {
+			~update_synths.value(\attackTime, val.linexp(0, 1, 1, 5));
+		});
+	}, '/1/multifader2/' ++ band);
 };
 
 /* Fire up the server */
@@ -81,13 +93,13 @@ s.waitForBoot({
 	/* Define our synth */
 	SynthDef.new(\simple, {
 		arg note=60, amp=0.6, gate=0, phs=0, bend=0,
-		    hpf_c=10, lpf_c=10000, hrq=1, lrq=1, width=0.5, multiply=1 // maybe use 'amp' instead?
+		    hpf_c=10, lpf_c=10000, hrq=1, lrq=1, width=0.5, multiply=1, // maybe use 'amp' instead?
 		    attackTime=0.8, decayTime=1.0, sustainLevel=0.75, releaseTime=3;
 		var freq, sig, env, filter, pan;
 
 
 		freq = note.midicps * LFNoise1.kr(1!4).bipolar(0).midiratio * bend.midiratio;
-		// sig = VarSaw.ar(freq, phs, MouseX.kr(0.01, 0.99), amp) * MouseY.kr(0.5, 0.8, 1);
+		// sig = VarSaw.ar(freq, phs, MouseX.kr(0.01, 0.99), amp).poll * MouseY.kr(0.5, 0.8, 1);
 		sig = VarSaw.ar(freq, phs, width, amp) * multiply;
 		sig = sig.wrap(-1, 1);
 
@@ -120,9 +132,9 @@ s.waitForBoot({
 		~init_mf_bend.value(i);
 	});
 
-	(0..3).do({
+	(1..4).do({
 		arg i;
-		~init_mf_adsr.value(i, ~adsr_keys[i]);
+		~init_mf_adsr.value(i, ~adsr_keys[i-1]);
 	});
 });
 
@@ -134,28 +146,46 @@ OSCdef.new(\master, {
 	s.volume_(amp.explin(0.01, 1, -60, 6)); // in dB
 }, '/1/fader1');
 
+
 OSCdef.new(\lpf, {
 	arg msg;
 	var val = msg[1];
-
+	val.postln;
 	~update_synths.value(\lpf_c, val.linexp(0, 1, 100, 2000));
 }, '/1/rotary1');
 
 OSCdef.new(\hpf, {
 	arg msg;
 	var val = msg[1];
+	val.postln;
 
-	~update_synths.value(\hpf_c, val.linexp(0, 1, 2000, 10000));
+	~update_synths.value(\hpf_c, val.linexp(0, 1, 2000, 5000));
 }, '/1/rotary2');
 
-// TODO: make sure this OSCdef picks up the right values, and maps them corrrectly into the synth update func
 OSCdef.new(\xypad, {
 	arg msg;
-	var y = msg[0], x = msg[1];
+	var y = msg[1], x = msg[2];
 
-	~update_synths.value(\width, x);
-	~update_synths.value(\multiply, y);
+	~update_synths.value(\width, x.linexp(0, 1, 0.01, 0.99));
+	~update_synths.value(\multiply, y.linexp(0, 1, 0.5, 0.8));
 }, '/1/xy1');
+
+/*OSCdef.new(\reset, {
+	arg msg;
+	// var val = msg[1];
+
+	~update_synths.value(\bend, 0);
+}, '/1/push1');*/
+
+OSCdef.new(\reset, {
+	arg msg;
+	msg.postln;
+
+	~touchOSC.sendMsg(
+		'/1/multifader1', // Send to multifader1, which is our pitch bend array
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	);
+}, '/1/push1'); // Listening for push1 from TouchOSC
 
 /* MIDIdefs listening to MIDI device */
 MIDIdef.noteOn(\noteOn, {
@@ -169,6 +199,9 @@ MIDIdef.noteOff(\noteOff, {
 	~synths[num - ~lowest_note].set(\gate, 0);
 });
 )
+
+~synths[1].set(\gate, 1);
+~synths[1].set(\gate, 0);
 
 ( /* Exit gracefully */
 OSCdef.freeAll;

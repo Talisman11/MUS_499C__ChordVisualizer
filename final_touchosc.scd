@@ -15,7 +15,7 @@ The final result would be a 3-system interface, using TouchOSC to toggle and pla
 (
 MIDIClient.init;
 MIDIIn.connectAll;
-MIDIFunc.trace(false);
+MIDIFunc.trace(true);
 )
 
 ~touchOSC.disconnect
@@ -27,13 +27,13 @@ MIDIFunc.trace(false);
 ~lowest_note = 36;                // Lowest src channel of MIDI notes
 ~intervals = (0..~num_keys);
 ~notes = ~root + ~intervals;
-~pitch_bends = Array.newClear(12); // Unnecessary?
+~gui_note_array = Array.newClear(~num_keys); // For GUI
 ~synths = Array.newClear(~num_keys);
 ~adsr_keys = ["attackTime", "decayTime", "sustainLevel", "releaseTime"];
 
 
 /* Initial values for TouchOSC knobs/faders */
-~bend = 0; ~hpf_c = 10; ~lpf_c = 10000;
+~bend = 0; ~hpf_c = 10; ~lpf_c = 2000;
 
 /* Helper function that sets \key of all synths to specified val */
 ~update_synths = {
@@ -45,13 +45,15 @@ MIDIFunc.trace(false);
 	});
 };
 
-// TODO: Might need to move these init functions to somewhere in the code after the ~synths have been created
 ~init_mf_bend = {
 	arg cell=1;
 
 	OSCdef.new(
 		\mf ++ cell, {
 			arg msg;
+
+			// TODO: I suspect I need another multifader listener to handle the reset button
+			msg.postln;
 
 			// Update bend value for all octaves of the corresponding cell
 			(cell-1, cell-1+12..~num_keys-1).do({
@@ -98,7 +100,7 @@ s.waitForBoot({
 		var freq, sig, env, filter, pan;
 
 
-		freq = note.midicps * LFNoise1.kr(1!4).bipolar(0).midiratio * bend.midiratio;
+		freq = note.midicps * LFNoise1.kr(1!4).bipolar(0.1).midiratio * bend.midiratio;
 		// sig = VarSaw.ar(freq, phs, MouseX.kr(0.01, 0.99), amp).poll * MouseY.kr(0.5, 0.8, 1);
 		sig = VarSaw.ar(freq, phs, width, amp) * multiply;
 		sig = sig.wrap(-1, 1);
@@ -110,10 +112,14 @@ s.waitForBoot({
 		sig = RLPF.ar(sig, lpf_c, lrq);
 
 		sig = Splay.ar(sig);
+		SendReply.kr(gate, '/gui', [note, bend]); // OSCdef in final_gui.scd file
 		Out.ar(0, sig);
 	}).add;
 
 	s.sync;
+
+	/* Turn on animations */
+	u.animate_(true);
 
 	/* Instantiate synths */
 	(0..~num_keys-1).do({
@@ -151,7 +157,7 @@ OSCdef.new(\lpf, {
 	arg msg;
 	var val = msg[1];
 	val.postln;
-	~update_synths.value(\lpf_c, val.linexp(0, 1, 100, 2000));
+	~update_synths.value(\lpf_c, val.linexp(0, 1, 100, ~lpf_c));
 }, '/1/rotary1');
 
 OSCdef.new(\hpf, {
@@ -159,7 +165,7 @@ OSCdef.new(\hpf, {
 	var val = msg[1];
 	val.postln;
 
-	~update_synths.value(\hpf_c, val.linexp(0, 1, 2000, 5000));
+	~update_synths.value(\hpf_c, val.linexp(0, 1, ~hpf_c, 2000));
 }, '/1/rotary2');
 
 OSCdef.new(\xypad, {
@@ -170,13 +176,10 @@ OSCdef.new(\xypad, {
 	~update_synths.value(\multiply, y.linexp(0, 1, 0.5, 0.8));
 }, '/1/xy1');
 
-/*OSCdef.new(\reset, {
-	arg msg;
-	// var val = msg[1];
-
-	~update_synths.value(\bend, 0);
-}, '/1/push1');*/
-
+/* Reset button based off one of your replies to a comment in Tutorial 11 - https://www.youtube.com/watch?v=ZVTbRNu2BI0
+ * But I think I did something wrong? Says:
+ * 'SC_UdpInPort: received error - An existing connection was forcibly closed by the remote host'
+ * */
 OSCdef.new(\reset, {
 	arg msg;
 	msg.postln;
@@ -187,21 +190,50 @@ OSCdef.new(\reset, {
 	);
 }, '/1/push1'); // Listening for push1 from TouchOSC
 
+
+/* Temporarily use NanoKontrol CC's to simulate Keyboard */
+MIDIdef.cc(\nano, {
+	arg val, num, chan, src;
+	var idx;
+
+	num = ~lowest_note + 12;
+	idx = num - ~lowest_note;
+	~synths[num - ~lowest_note].set(\gate, 1);
+}, 38);
+
+MIDIdef.cc(\nano2, {
+	arg val, num, chan, src;
+
+	var idx;
+
+	num = ~lowest_note + 12;
+	idx = num - ~lowest_note;
+	~synths[num - ~lowest_note].set(\gate, 0);
+}, 54);
+
 /* MIDIdefs listening to MIDI device */
 MIDIdef.noteOn(\noteOn, {
 	arg val, num, chan, src;
-	[num, val].postln;
+
+	var idx = num - ~lowest_note;
 	~synths[num - ~lowest_note].set(\gate, 1);
 });
 
 MIDIdef.noteOff(\noteOff, {
 	arg val, num, chan, src;
+
+	var idx = num - ~lowest_note;
 	~synths[num - ~lowest_note].set(\gate, 0);
 });
 )
 
-~synths[1].set(\gate, 1);
-~synths[1].set(\gate, 0);
+~synths[0].set(\gate, 1);
+~synths[0].set(\gate, 0);
+
+~synths[2].set(\gate, 1);
+~synths[2].set(\gate, 0);
+
+
 
 ( /* Exit gracefully */
 OSCdef.freeAll;

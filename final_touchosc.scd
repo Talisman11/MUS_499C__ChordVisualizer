@@ -27,10 +27,8 @@ MIDIFunc.trace(true);
 ~lowest_note = 36;                // Lowest src channel of MIDI notes
 ~intervals = (0..~num_keys);
 ~notes = ~root + ~intervals;
-~gui_note_array = Array.newClear(~num_keys); // For GUI
 ~synths = Array.newClear(~num_keys);
 ~adsr_keys = ["attackTime", "decayTime", "sustainLevel", "releaseTime"];
-
 
 /* Initial values for TouchOSC knobs/faders */
 ~bend = 0; ~hpf_c = 10; ~lpf_c = 2000;
@@ -112,6 +110,8 @@ s.waitForBoot({
 		sig = RLPF.ar(sig, lpf_c, lrq);
 
 		sig = Splay.ar(sig);
+
+		// So apparently I can only use a control rate to send signals when the gate is set to 1, since non-pos to positive.
 		SendReply.kr(gate, '/gui', [note, bend]); // OSCdef in final_gui.scd file
 		Out.ar(0, sig);
 	}).add;
@@ -129,6 +129,7 @@ s.waitForBoot({
 			\hpf_c, ~hpf_c,
 			\lpf_c, ~lpf_c
 		]);
+		~gui_note_array[i] = 0;
 	});
 
 	/* Init multifader OSCdefs */
@@ -196,8 +197,7 @@ MIDIdef.cc(\nano, {
 	arg val, num, chan, src;
 	var idx;
 
-	num = ~lowest_note + 12;
-	idx = num - ~lowest_note;
+	num = ~lowest_note;
 	~synths[num - ~lowest_note].set(\gate, 1);
 }, 38);
 
@@ -206,8 +206,7 @@ MIDIdef.cc(\nano2, {
 
 	var idx;
 
-	num = ~lowest_note + 12;
-	idx = num - ~lowest_note;
+	num = ~lowest_note;
 	~synths[num - ~lowest_note].set(\gate, 0);
 }, 54);
 
@@ -215,14 +214,12 @@ MIDIdef.cc(\nano2, {
 MIDIdef.noteOn(\noteOn, {
 	arg val, num, chan, src;
 
-	var idx = num - ~lowest_note;
 	~synths[num - ~lowest_note].set(\gate, 1);
 });
 
 MIDIdef.noteOff(\noteOff, {
 	arg val, num, chan, src;
 
-	var idx = num - ~lowest_note;
 	~synths[num - ~lowest_note].set(\gate, 0);
 });
 )

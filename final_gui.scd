@@ -11,17 +11,18 @@
 ~root = 61;
 ~note_radius = 20;
 ~revolver_radius = 100;
+~queue_size = 5; // Arbitrary limit
 
 /* Global variables calculated after user selects values. Should not be modified */
 ~centerX = ((~window_width - ~border) / 2).round;
 ~centerY = ((~window_height - ~border) / 2).round;
 
-~gui_note_array = Array.newClear(~num_keys); // ~num_keys from touchosc.scd
-~gui_note_coords = Array.newClear(~num_keys);
+~gui_queue = [];
+~gui_coords = [];
 
 // Create Window for UserView to attach to
 Window.closeAll;
-w = Window.new("Circle of Fifths", Rect(300, 300, ~window_width, ~window_height))
+w = Window.new("Circle of Chromatics (Starting from C...)", Rect(300, 300, ~window_width, ~window_height))
 .front
 .alwaysOnTop_(true);
 
@@ -38,7 +39,7 @@ u = UserView.new(w, Rect(~border, ~border, ~window_width - ~border, ~window_heig
 	var theta, cx, cy;
 
 	// Calculate the angle for the note (disregard the particular octave)
-	theta = (note % 12) * (pi/3) + (bend * pi/12);
+	theta = (note % 12) * (pi/3) + (bend * (pi/12));
 
 	// Calculate and offset to start at 12 o'clock and go clockwise.
 	cx = ~centerX - (~revolver_radius*cos(theta + pi/2));
@@ -55,22 +56,47 @@ u = UserView.new(w, Rect(~border, ~border, ~window_width - ~border, ~window_heig
 	Pen.fillStroke;
 };
 
-
 // OSCdef to receive Synth signal
 OSCdef.new(\recv, {
 	arg msg;
+
+	msg.postln;
 	{
 		// TODO: Since this function draws everything in one frame, need a way to clairvoyantly know what notes to draw
 		// all at once. This requires some sort of fixed size binary array using indices and modulo to determine what circles to enable
 		// Alternative is a queue that is populated with relevant data within...
 		u.drawFunc_({
 			arg uv;
-			var note, bend, coord;
+			var note, bend, coord, exists;
 
+			exists = false;
+			// Pick up data from Synth
 			note = msg[3];
 			bend = msg[4];
 
 			coord = ~polar.value(note, bend);
+
+			// Scan queue to see if this note already exists
+			block {|break|
+				(0..~gui_queue.size).do({
+					arg i;
+
+					if (~gui_queue[i] == note, {
+						exists = true;
+						break.value(999); // break from whole block; don't add anything
+					});
+				});
+
+				if (~gui_queue.size == ~queue_size, {
+					~gui_queue.removeAt(0);
+					~gui_coords.removeAt(0);
+				});
+				// Add the note if it does not exists
+				if (~gui_queue.size < ~queue_size, {
+					~gui_queue.add(note);
+					~gui_coords.add(coord);
+				});
+			};
 
 			// Redraw background, lightly, s.t. previous frame appears to fade like the 'trails', as well as
 			// 'revolver' circle
@@ -79,10 +105,10 @@ OSCdef.new(\recv, {
 			~draw_circle.value(~centerX@~centerY, ~revolver_radius, Color.white, Color(0,0,0,0.1));
 
 			// Draw circles where each note corresponds to a circle on the revolver
-			(0..~num_keys-1).do({
-				~draw_circle.value(coord, ~note_radius - 0, Color.white, Color(rrand(0.8, 1.0), 0, rrand(0.8, 1.0), 0.4));
+			(0..~gui_queue.size-1).do({
+				arg i;
+				~draw_circle.value(~gui_coords[i], ~note_radius, Color.white, Color(rrand(0.4, 0.6), 0, rrand(0.8, 1.0), 0.4));
 			});
-
 		});
 		u.refresh;
 	}.defer;
